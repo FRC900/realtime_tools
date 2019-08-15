@@ -55,7 +55,7 @@ class RealtimePublisher
 public:
   /// The msg_ variable contains the data that will get published on the ROS topic.
   Msg msg_;
-  
+
   /**  \brief Constructor for the realtime publisher
    *
    * \param node the nodehandle that specifies the namespace (or prefix) that is used to advertise the ROS topic
@@ -122,7 +122,7 @@ public:
       }
       else
       {
-        msg_mutex_.unlock();
+        unlock();
         return false;
       }
     }
@@ -141,10 +141,7 @@ public:
   void unlockAndPublish()
   {
     turn_ = NON_REALTIME;
-    msg_mutex_.unlock();
-#ifdef NON_POLLING
-    updated_cond_.notify_one();
-#endif
+    unlock();
   }
 
   /**  \brief Get the data lock form non-realtime
@@ -172,6 +169,9 @@ public:
   void unlock()
   {
     msg_mutex_.unlock();
+#ifdef NON_POLLING
+    updated_cond_.notify_one();
+#endif
   }
 
 private:
@@ -186,13 +186,15 @@ private:
     thread_ = std::thread(&RealtimePublisher::publishingLoop, this);
   }
 
-
   bool is_running() const { return is_running_; }
 
   void publishingLoop()
   {
     is_running_ = true;
     turn_ = REALTIME;
+#ifdef NON_POLLING
+    std::unique_lock<std::mutex> cond_lock_(msg_mutex_, std::defer_lock_t());
+#endif
 
     while (keep_running_)
     {
@@ -203,7 +205,7 @@ private:
       while (turn_ != NON_REALTIME && keep_running_)
       {
 #ifdef NON_POLLING
-        updated_cond_.wait(lock);
+        updated_cond_.wait(cond_lock_);
 #else
         unlock();
         std::this_thread::sleep_for(std::chrono::microseconds(500));
